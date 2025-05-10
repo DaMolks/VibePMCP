@@ -74,8 +74,22 @@ export class Server {
     this.mcpServer.resource(
       'project-files',
       new ResourceTemplate('project://{projectName}/{filePath}', { list: undefined }),
-      async (uri, { projectName, filePath }) => {
-        const content = await this.adapter.getProjectFile(projectName, filePath || '');
+      async (uri, params) => {
+        // Extraction des paramètres avec typage correct
+        const projectName = typeof params.projectName === 'string' 
+          ? params.projectName 
+          : Array.isArray(params.projectName) 
+            ? params.projectName[0] 
+            : '';
+            
+        const filePath = typeof params.filePath === 'string' 
+          ? params.filePath 
+          : Array.isArray(params.filePath) 
+            ? params.filePath.join('/') 
+            : '';
+        
+        const content = await this.adapter.getProjectFile(projectName, filePath);
+        
         return {
           contents: [{
             uri: uri.href,
