@@ -55,9 +55,7 @@ async function startStdioServer() {
     console.log('Démarrage du serveur VibePMCP en mode stdio...');
     
     const server = await main();
-    const transport = new StdioServerTransport({
-      // Options pour StdioServerTransport, si nécessaire
-    });
+    const transport = new StdioServerTransport();
     
     // Gestion de la fermeture propre
     process.on('SIGINT', async () => {
