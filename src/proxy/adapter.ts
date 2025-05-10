@@ -13,12 +13,53 @@ interface AdapterConfig {
 export class ProxyAdapter {
   private client: AxiosInstance;
   private currentProject: string | null = null;
+  private debug: boolean = true; // Mode debug pour tracer les communications
 
   constructor(config: AdapterConfig) {
+    // Initialiser le client HTTP avec les paramètres de configuration
     this.client = axios.create({
       baseURL: config.vibeServerUrl,
       timeout: config.timeout || 30000
     });
+    
+    // Log de démarrage
+    this.logDebug(`Adaptateur initialisé, URL du serveur: ${config.vibeServerUrl}`);
+  }
+
+  /**
+   * Fonction de log pour le débogage
+   */
+  private logDebug(message: string, data?: any) {
+    if (this.debug) {
+      // Utiliser un fichier de log au lieu de console.log pour éviter d'interférer avec stdio
+      const logMessage = `${new Date().toISOString()} [ProxyAdapter] ${message}${data ? ': ' + JSON.stringify(data) : ''}`;
+      
+      // Dans un environnement de production, remplacer par une écriture dans un fichier
+      // Ici, nous utilisons un log vers stderr qui ne perturbe pas le protocole MCP sur stdout
+      process.stderr.write(logMessage + '\n');
+    }
+  }
+
+  /**
+   * Méthode générique pour appeler une API du serveur
+   */
+  private async callApi(method: string, endpoint: string, data?: any, params?: any): Promise<any> {
+    try {
+      this.logDebug(`Appel API: ${method.toUpperCase()} ${endpoint}`, { data, params });
+      
+      const response = await this.client.request({
+        method,
+        url: endpoint,
+        data,
+        params
+      });
+      
+      this.logDebug(`Réponse API:`, response.data);
+      return response.data;
+    } catch (error: any) {
+      this.logDebug(`Erreur API: ${method.toUpperCase()} ${endpoint}`, error.message);
+      throw error;
+    }
   }
 
   /**
@@ -26,18 +67,22 @@ export class ProxyAdapter {
    */
   async createProject(name: string, description: string): Promise<string> {
     try {
-      const response = await this.client.post('/api/mcp/execute', {
-        command: `create-project ${name} ${description}`
+      this.logDebug('Création de projet', { name, description });
+      
+      // Appel direct à l'API projects/create
+      const response = await this.callApi('post', '/api/projects/create', {
+        name,
+        description
       });
 
-      if (response.data.success) {
+      if (response.success) {
         this.currentProject = name;
         return `Projet '${name}' créé avec succès`;
       } else {
-        return `Erreur lors de la création du projet: ${response.data.error || 'Erreur inconnue'}`;
+        return `Erreur lors de la création du projet: ${response.error || 'Erreur inconnue'}`;
       }
     } catch (error: any) {
-      return `Erreur de communication avec VibeMCP-Lite: ${error.message}`;
+      return `Erreur de communication avec VibeServer: ${error.message}`;
     }
   }
 
@@ -46,20 +91,21 @@ export class ProxyAdapter {
    */
   async listProjects(): Promise<string> {
     try {
-      const response = await this.client.post('/api/mcp/execute', {
-        command: 'list-projects'
-      });
+      this.logDebug('Listage des projets');
+      
+      // Appel direct à l'API projects/list
+      const response = await this.callApi('get', '/api/projects/list');
 
-      if (response.data.success && response.data.result.projects) {
-        const projects = response.data.result.projects;
-        return `Projets disponibles (${projects.length}):\n\n${projects.map((p: any) => 
+      if (response.projects) {
+        const projects = response.projects;
+        return `Projets disponibles (${projects.length}):\\n\\n${projects.map((p: any) => 
           `- ${p.name}${p.isActive ? ' (actif)' : ''}: ${p.description || 'Pas de description'}`
-        ).join('\n')}`;
+        ).join('\\n')}`;
       } else {
-        return `Erreur lors de la récupération des projets: ${response.data.error || 'Erreur inconnue'}`;
+        return `Erreur lors de la récupération des projets: ${response.error || 'Erreur inconnue'}`;
       }
     } catch (error: any) {
-      return `Erreur de communication avec VibeMCP-Lite: ${error.message}`;
+      return `Erreur de communication avec VibeServer: ${error.message}`;
     }
   }
 
@@ -68,18 +114,21 @@ export class ProxyAdapter {
    */
   async switchProject(name: string): Promise<string> {
     try {
-      const response = await this.client.post('/api/mcp/execute', {
+      this.logDebug('Changement de projet', { name });
+      
+      // Pour le changement de projet, nous utilisons l'API MCP
+      const response = await this.callApi('post', '/api/mcp/execute', {
         command: `switch-project ${name}`
       });
 
-      if (response.data.success) {
+      if (response.success) {
         this.currentProject = name;
         return `Projet '${name}' sélectionné avec succès`;
       } else {
-        return `Erreur lors du changement de projet: ${response.data.error || 'Erreur inconnue'}`;
+        return `Erreur lors du changement de projet: ${response.error || 'Erreur inconnue'}`;
       }
     } catch (error: any) {
-      return `Erreur de communication avec VibeMCP-Lite: ${error.message}`;
+      return `Erreur de communication avec VibeServer: ${error.message}`;
     }
   }
 
@@ -88,20 +137,21 @@ export class ProxyAdapter {
    */
   async getProjectFile(projectName: string, filePath: string): Promise<string> {
     try {
-      const response = await this.client.get('/api/files/read', {
-        params: {
-          project: projectName,
-          path: filePath
-        }
+      this.logDebug('Récupération de fichier', { projectName, filePath });
+      
+      // Appel direct à l'API files/read
+      const response = await this.callApi('get', '/api/files/read', null, {
+        project: projectName,
+        path: filePath
       });
 
-      if (response.data.content) {
-        return response.data.content;
+      if (response.content) {
+        return response.content;
       } else {
         return `Erreur: Impossible de lire le fichier ${filePath}`;
       }
     } catch (error: any) {
-      return `Erreur de communication avec VibeMCP-Lite: ${error.message}`;
+      return `Erreur de communication avec VibeServer: ${error.message}`;
     }
   }
 }
