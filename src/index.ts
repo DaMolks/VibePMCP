@@ -5,10 +5,9 @@ import { ProxyAdapter } from './proxy/adapter';
 import { config } from './config';
 
 async function main() {
-  console.log('VibePMCP - Proxy MCP pour VibeMCP-Lite');
-  console.log(`Version: ${config.version}`);
-  console.log(`Connexion au serveur VibeMCP-Lite: ${config.vibeServerUrl}`);
-
+  // Les logs sont maintenant gérés par le fichier de transport (stdio.ts ou http.ts)
+  // Éviter tout console.log ici car il pourrait aller vers stdout
+  
   const adapter = new ProxyAdapter({
     vibeServerUrl: config.vibeServerUrl,
     timeout: config.timeout
@@ -19,9 +18,6 @@ async function main() {
     version: config.version,
     adapter
   });
-
-  // Le transport exact sera déterminé dans les fichiers d'entrée spécifiques (stdio.ts ou http.ts)
-  console.log('Serveur MCP prêt. En attente de connexions...');
 
   return server;
 }
