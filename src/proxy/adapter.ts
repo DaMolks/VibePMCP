@@ -1,19 +1,23 @@
 // Adaptateur pour la communication avec VibeMCP-Lite
 
 import axios, { AxiosInstance } from 'axios';
+import { CommandDiscovery } from './command-discovery';
 
 interface AdapterConfig {
   vibeServerUrl: string;
   timeout?: number;
+  debug?: boolean;
 }
 
 /**
- * Classe qui gère la communication avec le serveur VibeMCP-Lite
+ * Classe qui gère la communication avec le serveur VibeServer
  */
 export class ProxyAdapter {
   private client: AxiosInstance;
   private currentProject: string | null = null;
   private debug: boolean = true; // Mode debug pour tracer les communications
+  private commandDiscovery: CommandDiscovery;
+  private initialized: boolean = false;
 
   constructor(config: AdapterConfig) {
     // Initialiser le client HTTP avec les paramètres de configuration
@@ -22,8 +26,44 @@ export class ProxyAdapter {
       timeout: config.timeout || 30000
     });
     
+    // Initialiser le module de découverte des commandes
+    this.commandDiscovery = new CommandDiscovery({
+      vibeServerUrl: config.vibeServerUrl,
+      timeout: config.timeout,
+      debug: config.debug
+    });
+    
+    this.debug = config.debug || true;
+    
     // Log de démarrage
     this.logDebug(`Adaptateur initialisé, URL du serveur: ${config.vibeServerUrl}`);
+  }
+
+  /**
+   * Initialise l'adaptateur en découvrant les commandes disponibles
+   */
+  async initialize(): Promise<void> {
+    try {
+      this.logDebug('Initialisation de l\'adaptateur');
+      
+      // Initialiser le module de découverte des commandes
+      await this.commandDiscovery.initialize();
+      
+      this.initialized = true;
+      this.logDebug('Adaptateur initialisé avec succès');
+    } catch (error: any) {
+      this.logDebug('Erreur lors de l\'initialisation de l\'adaptateur', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Vérifie si l'adaptateur a été initialisé
+   */
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw new Error('Adapter not initialized. Call initialize() first.');
+    }
   }
 
   /**
@@ -66,6 +106,7 @@ export class ProxyAdapter {
    * Méthode générique pour exécuter une commande MCP
    */
   async executeCommand(command: string): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Exécution de commande MCP', { command });
       
@@ -75,6 +116,12 @@ export class ProxyAdapter {
       });
 
       if (response.success) {
+        // Mettre à jour le projet courant si c'est une commande switch-project
+        const parts = command.trim().split(' ');
+        if (parts[0] === 'switch-project' && parts.length > 1) {
+          this.currentProject = parts[1];
+        }
+        
         return response.result ? JSON.stringify(response.result) : 'Commande exécutée avec succès';
       } else {
         return `Erreur lors de l'exécution de la commande: ${response.error || 'Erreur inconnue'}`;
@@ -85,93 +132,43 @@ export class ProxyAdapter {
   }
 
   /**
-   * Crée un nouveau projet sur VibeMCP-Lite
+   * Crée un nouveau projet sur VibeServer
    */
   async createProject(name: string, description: string): Promise<string> {
-    try {
-      this.logDebug('Création de projet', { name, description });
-      
-      // Appel direct à l'API projects/create
-      const response = await this.callApi('post', '/api/projects/create', {
-        name,
-        description
-      });
-
-      if (response.success) {
-        this.currentProject = name;
-        return `Projet '${name}' créé avec succès`;
-      } else {
-        return `Erreur lors de la création du projet: ${response.error || 'Erreur inconnue'}`;
-      }
-    } catch (error: any) {
-      return `Erreur de communication avec VibeServer: ${error.message}`;
-    }
+    this.ensureInitialized();
+    return this.executeCommand(`create-project ${name} ${description}`);
   }
 
   /**
    * Liste tous les projets disponibles
    */
   async listProjects(): Promise<string> {
-    try {
-      this.logDebug('Listage des projets');
-      
-      // Appel direct à l'API projects/list
-      const response = await this.callApi('get', '/api/projects/list');
-
-      if (response.projects) {
-        const projects = response.projects;
-        return `Projets disponibles (${projects.length}):\\\\\\n\\\\\\n${projects.map((p: any) => 
-          `- ${p.name}${p.description ? ': ' + p.description : ''}`
-        ).join('\\\\\\n')}`;
-      } else {
-        return `Erreur lors de la récupération des projets: ${response.error || 'Erreur inconnue'}`;
-      }
-    } catch (error: any) {
-      return `Erreur de communication avec VibeServer: ${error.message}`;
-    }
+    this.ensureInitialized();
+    return this.executeCommand('list-projects');
   }
 
   /**
    * Change le projet actif
    */
   async switchProject(name: string): Promise<string> {
-    try {
-      this.logDebug('Changement de projet', { name });
-      
-      // Pour le changement de projet, nous utilisons l'API MCP
-      const response = await this.callApi('post', '/api/mcp/execute', {
-        command: `switch-project ${name}`
-      });
-
-      if (response.success) {
-        this.currentProject = name;
-        return `Projet '${name}' sélectionné avec succès`;
-      } else {
-        return `Erreur lors du changement de projet: ${response.error || 'Erreur inconnue'}`;
-      }
-    } catch (error: any) {
-      return `Erreur de communication avec VibeServer: ${error.message}`;
-    }
+    this.ensureInitialized();
+    return this.executeCommand(`switch-project ${name}`);
   }
 
   /**
    * Récupère le contenu d'un fichier projet
    */
   async getProjectFile(projectName: string, filePath: string): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Récupération de fichier', { projectName, filePath });
       
-      // Appel direct à l'API files/read
-      const response = await this.callApi('get', '/api/files/read', null, {
-        project: projectName,
-        path: filePath
-      });
-
-      if (response.content) {
-        return response.content;
-      } else {
-        return `Erreur: Impossible de lire le fichier ${filePath}`;
+      // D'abord, s'assurer que le projet est actif
+      if (this.currentProject !== projectName) {
+        await this.switchProject(projectName);
       }
+      
+      return this.executeCommand(`read-file ${filePath}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
@@ -181,6 +178,7 @@ export class ProxyAdapter {
    * Crée un nouveau fichier dans le projet spécifié
    */
   async createFile(filePath: string, content: string = ''): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Création de fichier', { filePath, content });
       
@@ -188,18 +186,7 @@ export class ProxyAdapter {
         return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
       }
       
-      // Appel direct à l'API files/write au lieu d'utiliser executeCommand
-      const response = await this.callApi('post', '/api/files/write', {
-        project: this.currentProject,
-        path: filePath,
-        content: content
-      });
-
-      if (response.success) {
-        return `Fichier '${filePath}' créé avec succès`;
-      } else {
-        return `Erreur lors de la création du fichier: ${response.error || 'Erreur inconnue'}`;
-      }
+      return this.executeCommand(`create-file ${filePath} ${content}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
@@ -209,6 +196,7 @@ export class ProxyAdapter {
    * Liste les fichiers dans le répertoire spécifié
    */
   async listFiles(directory: string = ''): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Listage des fichiers', { directory });
       
@@ -216,25 +204,7 @@ export class ProxyAdapter {
         return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
       }
       
-      // Appel direct à l'API files/list au lieu d'utiliser executeCommand
-      const response = await this.callApi('get', '/api/files/list', null, {
-        project: this.currentProject,
-        path: directory
-      });
-
-      if (response.files) {
-        const files = response.files;
-        let result = `Fichiers dans ${directory || '/'} (${files.length}):\\\\\\n\\\\\\n`;
-        
-        // Formatter les fichiers en liste
-        const filesList = files.map((f: any) => 
-          `- ${f.type === 'directory' ? '[Dir] ' : ''}${f.name} ${f.size ? `(${f.size} octets)` : ''}`
-        ).join('\\\\\\n');
-        
-        return result + filesList;
-      } else {
-        return `Erreur lors de la récupération des fichiers: ${response.error || 'Erreur inconnue'}`;
-      }
+      return this.executeCommand(`list-files ${directory}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
@@ -244,6 +214,7 @@ export class ProxyAdapter {
    * Lit le contenu d'un fichier
    */
   async readFile(filePath: string): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Lecture de fichier', { filePath });
       
@@ -251,22 +222,7 @@ export class ProxyAdapter {
         return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
       }
       
-      // Appel direct à l'API files/read au lieu d'utiliser executeCommand
-      const response = await this.callApi('get', '/api/files/read', null, {
-        project: this.currentProject,
-        path: filePath
-      });
-
-      if (response.content !== undefined) {
-        return JSON.stringify({
-          path: filePath,
-          content: response.content,
-          size: response.content.length,
-          lines: response.content.split('\n').length
-        });
-      } else {
-        return `Erreur lors de la lecture du fichier: ${response.error || 'Erreur inconnue'}`;
-      }
+      return this.executeCommand(`read-file ${filePath}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
@@ -276,6 +232,7 @@ export class ProxyAdapter {
    * Met à jour le contenu d'un fichier
    */
   async updateFile(filePath: string, content: string): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Mise à jour de fichier', { filePath, contentLength: content.length });
       
@@ -283,18 +240,7 @@ export class ProxyAdapter {
         return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
       }
       
-      // Appel direct à l'API files/write au lieu d'utiliser executeCommand
-      const response = await this.callApi('post', '/api/files/write', {
-        project: this.currentProject,
-        path: filePath,
-        content: content
-      });
-
-      if (response.success) {
-        return `Fichier '${filePath}' mis à jour avec succès`;
-      } else {
-        return `Erreur lors de la mise à jour du fichier: ${response.error || 'Erreur inconnue'}`;
-      }
+      return this.executeCommand(`update-file ${filePath} ${content}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
@@ -304,6 +250,7 @@ export class ProxyAdapter {
    * Supprime un fichier ou répertoire
    */
   async deleteFile(filePath: string): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Suppression de fichier', { filePath });
       
@@ -311,17 +258,7 @@ export class ProxyAdapter {
         return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
       }
       
-      // Appel direct à l'API files/delete au lieu d'utiliser executeCommand
-      const response = await this.callApi('delete', '/api/files/delete', {
-        project: this.currentProject,
-        path: filePath
-      });
-
-      if (response.success) {
-        return `'${filePath}' supprimé avec succès`;
-      } else {
-        return `Erreur lors de la suppression: ${response.error || 'Erreur inconnue'}`;
-      }
+      return this.executeCommand(`delete-file ${filePath}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
@@ -331,6 +268,7 @@ export class ProxyAdapter {
    * Édite des lignes spécifiques d'un fichier
    */
   async editFile(filePath: string, lineRange: string, content: string = ''): Promise<string> {
+    this.ensureInitialized();
     try {
       this.logDebug('Édition de fichier', { filePath, lineRange, content });
       
@@ -338,31 +276,34 @@ export class ProxyAdapter {
         return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
       }
       
-      // Analyser la plage de lignes (format: début-fin)
-      const rangeMatch = lineRange.match(/^(\d+)-(\d+)$/);
-      if (!rangeMatch) {
-        return 'Erreur: Format de plage de lignes invalide. Utilisez: début-fin';
-      }
-
-      const startLine = parseInt(rangeMatch[1], 10);
-      const endLine = parseInt(rangeMatch[2], 10);
-      
-      // Appel direct à l'API files/edit-lines au lieu d'utiliser executeCommand
-      const response = await this.callApi('patch', '/api/files/edit-lines', {
-        project: this.currentProject,
-        path: filePath,
-        startLine: startLine,
-        endLine: endLine,
-        content: content
-      });
-
-      if (response.success) {
-        return `Lignes ${startLine}-${endLine} du fichier '${filePath}' modifiées avec succès`;
-      } else {
-        return `Erreur lors de l'édition du fichier: ${response.error || 'Erreur inconnue'}`;
-      }
+      return this.executeCommand(`edit ${filePath} ${lineRange} ${content}`);
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
+    }
+  }
+
+  /**
+   * Exécute une commande Git sur le serveur
+   */
+  async executeGit(gitCommand: string, args: string = ''): Promise<string> {
+    this.ensureInitialized();
+    // Vérifier si la commande Git est supportée par le serveur
+    if (!await this.isGitCommandSupported(gitCommand)) {
+      return `Erreur: La commande Git '${gitCommand}' n'est pas supportée par le serveur.`;
+    }
+    
+    return this.executeCommand(`${gitCommand} ${args}`);
+  }
+
+  /**
+   * Vérifie si une commande Git est supportée par le serveur
+   */
+  private async isGitCommandSupported(gitCommand: string): Promise<boolean> {
+    try {
+      return this.commandDiscovery.hasCommand(gitCommand);
+    } catch (error) {
+      this.logDebug(`Erreur lors de la vérification de la commande Git '${gitCommand}'`, error);
+      return false;
     }
   }
 
@@ -370,6 +311,16 @@ export class ProxyAdapter {
    * Affiche l'aide des commandes disponibles
    */
   async help(): Promise<string> {
+    this.ensureInitialized();
     return this.executeCommand('help');
+  }
+
+  /**
+   * Obtient la liste des commandes disponibles
+   */
+  async getAvailableCommands(): Promise<string[]> {
+    this.ensureInitialized();
+    const commands = this.commandDiscovery.getAllCommands();
+    return commands.map(cmd => cmd.name);
   }
 }
