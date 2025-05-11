@@ -63,6 +63,28 @@ export class ProxyAdapter {
   }
 
   /**
+   * Méthode générique pour exécuter une commande MCP
+   */
+  async executeCommand(command: string): Promise<string> {
+    try {
+      this.logDebug('Exécution de commande MCP', { command });
+      
+      // Appel à l'API MCP
+      const response = await this.callApi('post', '/api/mcp/execute', {
+        command
+      });
+
+      if (response.success) {
+        return response.result ? JSON.stringify(response.result) : 'Commande exécutée avec succès';
+      } else {
+        return `Erreur lors de l'exécution de la commande: ${response.error || 'Erreur inconnue'}`;
+      }
+    } catch (error: any) {
+      return `Erreur de communication avec VibeServer: ${error.message}`;
+    }
+  }
+
+  /**
    * Crée un nouveau projet sur VibeMCP-Lite
    */
   async createProject(name: string, description: string): Promise<string> {
@@ -98,9 +120,9 @@ export class ProxyAdapter {
 
       if (response.projects) {
         const projects = response.projects;
-        return `Projets disponibles (${projects.length}):\\n\\n${projects.map((p: any) => 
-          `- ${p.name}${p.isActive ? ' (actif)' : ''}: ${p.description || 'Pas de description'}`
-        ).join('\\n')}`;
+        return `Projets disponibles (${projects.length}):\\\n\\\n${projects.map((p: any) => 
+          `- ${p.name}${p.description ? ': ' + p.description : ''}`
+        ).join('\\\n')}`;
       } else {
         return `Erreur lors de la récupération des projets: ${response.error || 'Erreur inconnue'}`;
       }
@@ -153,5 +175,78 @@ export class ProxyAdapter {
     } catch (error: any) {
       return `Erreur de communication avec VibeServer: ${error.message}`;
     }
+  }
+
+  /**
+   * Crée un nouveau fichier dans le projet spécifié
+   */
+  async createFile(path: string, content: string = ''): Promise<string> {
+    if (!this.currentProject) {
+      return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
+    }
+    
+    return this.executeCommand(`create-file ${path} ${content}`);
+  }
+
+  /**
+   * Liste les fichiers dans le répertoire spécifié
+   */
+  async listFiles(directory: string = ''): Promise<string> {
+    if (!this.currentProject) {
+      return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
+    }
+    
+    return this.executeCommand(`list-files ${directory}`);
+  }
+
+  /**
+   * Lit le contenu d'un fichier
+   */
+  async readFile(path: string): Promise<string> {
+    if (!this.currentProject) {
+      return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
+    }
+    
+    return this.executeCommand(`read-file ${path}`);
+  }
+
+  /**
+   * Met à jour le contenu d'un fichier
+   */
+  async updateFile(path: string, content: string): Promise<string> {
+    if (!this.currentProject) {
+      return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
+    }
+    
+    return this.executeCommand(`update-file ${path} ${content}`);
+  }
+
+  /**
+   * Supprime un fichier ou répertoire
+   */
+  async deleteFile(path: string): Promise<string> {
+    if (!this.currentProject) {
+      return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
+    }
+    
+    return this.executeCommand(`delete-file ${path}`);
+  }
+
+  /**
+   * Édite des lignes spécifiques d'un fichier
+   */
+  async editFile(path: string, lineRange: string, content: string = ''): Promise<string> {
+    if (!this.currentProject) {
+      return 'Erreur: Aucun projet actif. Utilisez switch-project d\'abord.';
+    }
+    
+    return this.executeCommand(`edit ${path} ${lineRange} ${content}`);
+  }
+
+  /**
+   * Affiche l'aide des commandes disponibles
+   */
+  async help(): Promise<string> {
+    return this.executeCommand('help');
   }
 }
