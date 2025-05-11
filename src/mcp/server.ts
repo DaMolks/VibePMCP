@@ -13,6 +13,7 @@ interface ServerConfig {
 export class Server {
   private mcpServer: McpServer;
   private adapter: ProxyAdapter;
+  private initialized: boolean = false;
 
   constructor(config: ServerConfig) {
     this.adapter = config.adapter;
@@ -20,143 +21,54 @@ export class Server {
       name: config.name,
       version: config.version
     });
-
-    this.registerTools();
-    this.registerResources();
   }
 
-  private registerTools() {
-    // Enregistrement des outils VibeMCP-Lite en tant qu'outils MCP
+  /**
+   * Initialise le serveur et l'adaptateur
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    try {
+      // Initialiser l'adaptateur pour découvrir les commandes disponibles
+      await this.adapter.initialize();
+      
+      // Enregistrer les outils et ressources
+      await this.registerTools();
+      this.registerResources();
+      
+      this.initialized = true;
+    } catch (error) {
+      console.error('Error initializing server:', error);
+      throw error;
+    }
+  }
+
+  private async registerTools() {
+    // Récupérer la liste des commandes disponibles
+    const commands = await this.adapter.getAvailableCommands();
     
-    // Outil: create-project
+    // Enregistrer un outil générique pour chaque commande
+    for (const command of commands) {
+      this.registerCommand(command);
+    }
+  }
+
+  /**
+   * Enregistre une commande comme outil MCP
+   */
+  private registerCommand(command: string) {
+    // Définir un schéma Zod de base pour la commande
+    // Note: Idéalement, on pourrait récupérer le schéma détaillé depuis le serveur
     this.mcpServer.tool(
-      'create-project',
+      command,
       {
-        name: z.string(),
-        description: z.string().optional()
+        args: z.string().optional()
       },
-      async ({ name, description }) => {
-        const result = await this.adapter.createProject(name, description || '');
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: list-projects
-    this.mcpServer.tool(
-      'list-projects',
-      {},
-      async () => {
-        const result = await this.adapter.listProjects();
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: switch-project
-    this.mcpServer.tool(
-      'switch-project',
-      { name: z.string() },
-      async ({ name }) => {
-        const result = await this.adapter.switchProject(name);
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: create-file
-    this.mcpServer.tool(
-      'create-file',
-      { 
-        path: z.string(),
-        content: z.string().optional()
-      },
-      async ({ path, content }) => {
-        const result = await this.adapter.createFile(path, content || '');
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: list-files
-    this.mcpServer.tool(
-      'list-files',
-      { 
-        directory: z.string().optional()
-      },
-      async ({ directory }) => {
-        const result = await this.adapter.listFiles(directory || '');
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: read-file
-    this.mcpServer.tool(
-      'read-file',
-      { path: z.string() },
-      async ({ path }) => {
-        const result = await this.adapter.readFile(path);
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: update-file
-    this.mcpServer.tool(
-      'update-file',
-      { 
-        path: z.string(),
-        content: z.string()
-      },
-      async ({ path, content }) => {
-        const result = await this.adapter.updateFile(path, content);
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: delete-file
-    this.mcpServer.tool(
-      'delete-file',
-      { path: z.string() },
-      async ({ path }) => {
-        const result = await this.adapter.deleteFile(path);
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: edit
-    this.mcpServer.tool(
-      'edit',
-      { 
-        path: z.string(),
-        lineRange: z.string(),
-        content: z.string().optional()
-      },
-      async ({ path, lineRange, content }) => {
-        const result = await this.adapter.editFile(path, lineRange, content || '');
-        return {
-          content: [{ type: 'text', text: result }]
-        };
-      }
-    );
-
-    // Outil: help
-    this.mcpServer.tool(
-      'help',
-      {},
-      async () => {
-        const result = await this.adapter.help();
+      async ({ args }) => {
+        const result = await this.adapter.executeCommand(`${command} ${args || ''}`);
         return {
           content: [{ type: 'text', text: result }]
         };
@@ -200,6 +112,11 @@ export class Server {
    * Connecte le serveur MCP au transport spécifié
    */
   async connect(transport: any) {
+    // S'assurer que le serveur est initialisé avant de se connecter
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
     return this.mcpServer.connect(transport);
   }
 
