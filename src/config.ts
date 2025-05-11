@@ -1,31 +1,21 @@
-// Configuration centralisée pour VibePMCP
-
-import * as dotenv from 'dotenv';
-import * as path from 'path';
+// Configuration pour VibePMCP
 
 // Charger les variables d'environnement depuis .env
+import * as dotenv from 'dotenv';
 dotenv.config();
 
-export const config = {
-  // Informations sur le serveur
-  name: 'VibePMCP',
+// Configuration par défaut
+const defaultConfig = {
+  vibeServerUrl: 'http://localhost:3000',
+  timeout: 30000,
   version: '0.1.0',
-  
-  // URL du serveur VibeMCP-Lite
-  vibeServerUrl: process.env.VIBE_SERVER_URL || 'http://localhost:3000',
-  
-  // Configuration du serveur HTTP
-  port: parseInt(process.env.PORT || '3456', 10),
-  host: process.env.HOST || 'localhost',
-  
-  // Timeout pour les requêtes au serveur VibeMCP-Lite (ms)
-  timeout: parseInt(process.env.REQUEST_TIMEOUT || '30000', 10),
-  
-  // Chemins importants
-  paths: {
-    root: path.resolve(__dirname, '..')
-  },
-  
-  // Logs
-  logLevel: process.env.LOG_LEVEL || 'info'
+  debug: true
+};
+
+// Extraire la configuration depuis les variables d'environnement
+export const config = {
+  vibeServerUrl: process.env.VIBE_SERVER_URL || defaultConfig.vibeServerUrl,
+  timeout: process.env.VIBE_TIMEOUT ? parseInt(process.env.VIBE_TIMEOUT) : defaultConfig.timeout,
+  version: process.env.VIBE_VERSION || defaultConfig.version,
+  debug: process.env.VIBE_DEBUG ? process.env.VIBE_DEBUG === 'true' : defaultConfig.debug
 };
