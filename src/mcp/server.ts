@@ -66,6 +66,102 @@ export class Server {
         };
       }
     );
+
+    // Outil: create-file
+    this.mcpServer.tool(
+      'create-file',
+      { 
+        path: z.string(),
+        content: z.string().optional()
+      },
+      async ({ path, content }) => {
+        const result = await this.adapter.createFile(path, content || '');
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
+
+    // Outil: list-files
+    this.mcpServer.tool(
+      'list-files',
+      { 
+        directory: z.string().optional()
+      },
+      async ({ directory }) => {
+        const result = await this.adapter.listFiles(directory || '');
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
+
+    // Outil: read-file
+    this.mcpServer.tool(
+      'read-file',
+      { path: z.string() },
+      async ({ path }) => {
+        const result = await this.adapter.readFile(path);
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
+
+    // Outil: update-file
+    this.mcpServer.tool(
+      'update-file',
+      { 
+        path: z.string(),
+        content: z.string()
+      },
+      async ({ path, content }) => {
+        const result = await this.adapter.updateFile(path, content);
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
+
+    // Outil: delete-file
+    this.mcpServer.tool(
+      'delete-file',
+      { path: z.string() },
+      async ({ path }) => {
+        const result = await this.adapter.deleteFile(path);
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
+
+    // Outil: edit
+    this.mcpServer.tool(
+      'edit',
+      { 
+        path: z.string(),
+        lineRange: z.string(),
+        content: z.string().optional()
+      },
+      async ({ path, lineRange, content }) => {
+        const result = await this.adapter.editFile(path, lineRange, content || '');
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
+
+    // Outil: help
+    this.mcpServer.tool(
+      'help',
+      {},
+      async () => {
+        const result = await this.adapter.help();
+        return {
+          content: [{ type: 'text', text: result }]
+        };
+      }
+    );
   }
 
   private registerResources() {
